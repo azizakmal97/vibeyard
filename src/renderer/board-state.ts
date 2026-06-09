@@ -62,6 +62,33 @@ export function addTask(partial: Partial<BoardTask>): BoardTask | undefined {
   return task;
 }
 
+export function batchAddTasks(partials: Partial<BoardTask>[]): void {
+  const board = getBoard();
+  if (!board) return;
+  const now = Date.now();
+  for (const partial of partials) {
+    const columnId = partial.columnId ?? getColumnByBehavior('inbox')?.id ?? board.columns[0]?.id;
+    if (!columnId) continue;
+    const maxOrder = board.tasks
+      .filter(t => t.columnId === columnId)
+      .reduce((max, t) => Math.max(max, t.order), -1);
+    board.tasks.push({
+      id: crypto.randomUUID(),
+      title: partial.title ?? '',
+      prompt: partial.prompt ?? '',
+      columnId,
+      order: maxOrder + 1,
+      createdAt: partial.createdAt || now,
+      updatedAt: now,
+      ...(partial.notes ? { notes: partial.notes } : {}),
+      ...(partial.tags && partial.tags.length > 0 ? { tags: partial.tags } : {}),
+      ...(partial.providerId ? { providerId: partial.providerId } : {}),
+      ...(partial.planMode !== undefined ? { planMode: partial.planMode } : {}),
+    });
+  }
+  appState.notifyBoardChanged();
+}
+
 export function updateTask(taskId: string, updates: Partial<BoardTask>): void {
   const board = getBoard();
   if (!board) return;

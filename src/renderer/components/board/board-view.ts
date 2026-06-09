@@ -6,6 +6,7 @@ import { initBoardDnd, isDragActive, addDragEndCallback } from './board-dnd.js';
 import { showConfirmModal } from '../modal.js';
 import { showContextMenu } from './board-context-menu.js';
 import { showBoardHelpDialog } from './board-help-dialog.js';
+import { showImportPlanModal } from './board-import-modal.js';
 import { instances as kanbanInstances } from '../kanban/instance.js';
 import type { BoardColumn, TagDefinition, BoardData } from '../../../shared/types.js';
 import {
@@ -125,12 +126,19 @@ export function createBoardView(): HTMLElement {
   searchWrap.appendChild(searchIcon);
   searchWrap.appendChild(searchInput);
 
+  const importBtn = document.createElement('button');
+  importBtn.className = 'btn-secondary btn-sm';
+  importBtn.innerHTML = `${svgIcon('<path d="M7 2v7M4 6l3 3 3-3"/><rect x="2" y="9" width="10" height="3" rx="1"/>')}<span>Import plan</span>`;
+  importBtn.title = 'Import tasks from a plan file';
+  importBtn.addEventListener('click', () => showImportPlanModal());
+
   const addBtn = document.createElement('button');
   addBtn.className = 'btn-primary';
   addBtn.innerHTML = `${svgIcon('<line x1="7" y1="2.5" x2="7" y2="11.5"/><line x1="2.5" y1="7" x2="11.5" y2="7"/>')}<span>New task</span>`;
   addBtn.addEventListener('click', () => showTaskModal('create'));
 
   actions.appendChild(searchWrap);
+  actions.appendChild(importBtn);
   actions.appendChild(addBtn);
 
   header.appendChild(titleGroup);
