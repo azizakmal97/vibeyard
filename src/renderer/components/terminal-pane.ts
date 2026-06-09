@@ -1,5 +1,5 @@
 import { Terminal } from '@xterm/xterm';
-import { getTerminalTheme } from '../terminal-theme.js';
+import { getTerminalTheme, TERMINAL_SCROLLBACK } from '../terminal-theme.js';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -92,6 +92,7 @@ export function createTerminalPane(
     theme: getTerminalTheme(appState.preferences.theme ?? 'dark'),
     fontSize: 14,
     fontFamily: "'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, monospace",
+    scrollback: TERMINAL_SCROLLBACK,
     cursorBlink: true,
     allowProposedApi: true,
     linkHandler: {

@@ -49,3 +49,9 @@ export const lightTerminalTheme: ITheme = {
 export function getTerminalTheme(theme: 'dark' | 'light'): ITheme {
   return theme === 'light' ? lightTerminalTheme : darkTerminalTheme;
 }
+
+// xterm's default scrollback is only 1000 lines, which a verbose CLI session
+// (e.g. Claude Code printing a large diff) blows past in seconds — older output
+// is then permanently discarded and unreachable by scrolling up. 10k keeps a
+// generous history without unbounded memory growth.
+export const TERMINAL_SCROLLBACK = 10000;

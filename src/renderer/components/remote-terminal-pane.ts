@@ -2,7 +2,7 @@
 // receiving data from a WebRTC data channel (P2P session sharing).
 
 import { Terminal } from '@xterm/xterm';
-import { getTerminalTheme } from '../terminal-theme.js';
+import { getTerminalTheme, TERMINAL_SCROLLBACK } from '../terminal-theme.js';
 import { FitAddon } from '@xterm/addon-fit';
 import type { ShareMode } from '../../shared/sharing-types.js';
 import { appState } from '../state.js';
@@ -60,6 +60,7 @@ export function createRemoteTerminalPane(
     theme: getTerminalTheme(appState.preferences.theme ?? 'dark'),
     fontSize: 14,
     fontFamily: "'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, monospace",
+    scrollback: TERMINAL_SCROLLBACK,
     cursorBlink: mode === 'readwrite',
     allowProposedApi: true,
     disableStdin: mode === 'readonly',
