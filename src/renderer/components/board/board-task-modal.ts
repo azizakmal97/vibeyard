@@ -3,6 +3,7 @@ import { addTask, updateTask, getBoard, addTag, getTagColor } from '../../board-
 import { showModal, closeModal, setModalError, registerModalCleanup, type FieldDef } from '../modal.js';
 import { createCustomSelect, type CustomSelectInstance } from '../custom-select.js';
 import { createPlanModeRow } from '../../dom-utils.js';
+import { findInvalidEnvLines } from '../../../shared/env-vars.js';
 import {
   getAvailableProviderMetas,
   getProviderCapabilities,
@@ -17,12 +18,14 @@ import { runTask } from './board-card.js';
  * absent from this map show no Model picker. `--model <value>` is universal across
  * the supported CLIs, so adding a provider here is just listing its model ids.
  */
+const CUSTOM_MODEL = '__custom__';
 const MODEL_OPTIONS: Partial<Record<ProviderId, { value: string; label: string }[]>> = {
   claude: [
     { value: '', label: 'Default' },
     { value: 'opus', label: 'Opus' },
     { value: 'sonnet', label: 'Sonnet' },
     { value: 'haiku', label: 'Haiku' },
+    { value: CUSTOM_MODEL, label: 'Custom…' },
   ],
 };
 
@@ -70,6 +73,14 @@ export function showTaskModal(
       defaultValue: task?.notes ?? prefill?.notes ?? '',
       rows: 3,
     },
+    {
+      label: 'Environment Variables',
+      id: 'envVars',
+      type: 'textarea',
+      placeholder: 'KEY=VALUE (one per line)\ne.g. ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic\nANTHROPIC_API_KEY=sk-...',
+      defaultValue: task?.envVars ?? '',
+      rows: 3,
+    },
   ];
 
   if (mode === 'edit') {
@@ -108,6 +119,15 @@ export function showTaskModal(
 
     const notes = values.notes?.trim() ?? '';
 
+    const envVars = values.envVars?.trim() || undefined;
+    if (envVars) {
+      const invalid = findInvalidEnvLines(envVars);
+      if (invalid.length > 0) {
+        setModalError('envVars', `Invalid line(s): ${invalid.join(', ')}. Use KEY=VALUE.`);
+        return;
+      }
+    }
+
     // Ensure all tags are in the palette (assigns colors)
     for (const t of currentTags) addTag(t);
 
@@ -123,6 +143,7 @@ export function showTaskModal(
         tags: currentTags.length > 0 ? currentTags : undefined,
         providerId: currentProviderId,
         model: currentModel || undefined,
+        envVars,
         planMode,
       });
     } else if (task) {
@@ -133,6 +154,7 @@ export function showTaskModal(
         tags: currentTags.length > 0 ? currentTags : undefined,
         providerId: currentProviderId,
         model: currentModel || undefined,
+        envVars,
         planMode,
         ...(values.columnId ? { columnId: values.columnId } : {}),
       });
@@ -296,24 +318,48 @@ export function showTaskModal(
   let modelSelect: CustomSelectInstance | undefined;
   registerModalCleanup(() => modelSelect?.destroy());
 
+  // Free-text input revealed when "Custom…" is picked (e.g. deepseek-chat).
+  const modelCustomInput = document.createElement('input');
+  modelCustomInput.type = 'text';
+  modelCustomInput.id = 'modal-taskModelCustom';
+  modelCustomInput.placeholder = 'Custom model id, e.g. deepseek-chat';
+  modelCustomInput.style.marginTop = '6px';
+  modelCustomInput.addEventListener('input', () => { currentModel = modelCustomInput.value.trim(); });
+
   function refreshModelField(): void {
     const options = MODEL_OPTIONS[currentProviderId];
     modelSelect?.destroy();
     modelFieldDiv.querySelector('.custom-select')?.remove();
     if (!options) {
       modelFieldDiv.style.display = 'none';
+      modelCustomInput.style.display = 'none';
       currentModel = '';
       return;
     }
     modelFieldDiv.style.display = '';
-    if (!options.some(o => o.value === currentModel)) currentModel = '';
+    // A model that isn't one of the presets is treated as a custom value.
+    const presetValues = options.map(o => o.value).filter(v => v !== CUSTOM_MODEL);
+    const isCustom = !!currentModel && !presetValues.includes(currentModel);
+    const selected = isCustom ? CUSTOM_MODEL : currentModel;
+    modelCustomInput.value = isCustom ? currentModel : '';
+    modelCustomInput.style.display = isCustom ? '' : 'none';
     modelSelect = createCustomSelect(
       'taskModel',
       options,
-      currentModel,
-      (value) => { currentModel = value; },
+      selected,
+      (value) => {
+        if (value === CUSTOM_MODEL) {
+          modelCustomInput.style.display = '';
+          currentModel = modelCustomInput.value.trim();
+          modelCustomInput.focus();
+        } else {
+          modelCustomInput.style.display = 'none';
+          currentModel = value;
+        }
+      },
     );
     modelFieldDiv.appendChild(modelSelect.element);
+    modelFieldDiv.appendChild(modelCustomInput);
   }
 
   const planModeFieldDiv = document.createElement('div');
@@ -361,7 +407,16 @@ export function showTaskModal(
         const prompt = (document.getElementById('modal-prompt') as HTMLTextAreaElement)?.value?.trim() ?? '';
         const taskTitle = (document.getElementById('modal-taskTitle') as HTMLInputElement)?.value?.trim() ?? '';
         const notes = (document.getElementById('modal-notes') as HTMLTextAreaElement)?.value?.trim() ?? '';
+        const envVars = (document.getElementById('modal-envVars') as HTMLTextAreaElement)?.value?.trim() || undefined;
         const columnId = (document.getElementById('modal-columnId') as HTMLInputElement)?.value;
+
+        if (envVars) {
+          const invalid = findInvalidEnvLines(envVars);
+          if (invalid.length > 0) {
+            setModalError('envVars', `Invalid line(s): ${invalid.join(', ')}. Use KEY=VALUE.`);
+            return;
+          }
+        }
 
         for (const t of currentTags) addTag(t);
         const planMode = planModeCheckbox.checked;
@@ -372,12 +427,13 @@ export function showTaskModal(
           tags: currentTags.length > 0 ? currentTags : undefined,
           providerId: currentProviderId,
           model: currentModel || undefined,
+          envVars,
           planMode,
           ...(columnId ? { columnId } : {}),
         });
 
         closeModal();
-        runTask(task);
+        runTask({ ...task, envVars, model: currentModel || undefined, providerId: currentProviderId, planMode });
       });
       footer.insertBefore(runBtn, footer.firstChild);
       registerModalCleanup(() => runBtn.remove());

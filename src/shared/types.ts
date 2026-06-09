@@ -232,6 +232,8 @@ export interface BoardTask {
   providerId?: ProviderId;
   /** Model passed to the CLI on launch as `--model <value>` (e.g. 'opus'). Empty/undefined = provider default. */
   model?: string;
+  /** Raw `KEY=VALUE` lines injected into the CLI process on launch (e.g. ANTHROPIC_BASE_URL / ANTHROPIC_API_KEY for DeepSeek or other Anthropic-compatible endpoints). */
+  envVars?: string;
   planMode?: boolean;
   tags?: string[];
   createdAt: number;

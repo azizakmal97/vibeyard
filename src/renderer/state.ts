@@ -337,12 +337,13 @@ class AppState {
     planMode: boolean = true,
     providerIdOverride?: ProviderId,
     model?: string,
+    envVars?: string,
   ): SessionRecord | undefined {
     const project = this.state.projects.find((p) => p.id === projectId);
     if (!project) return undefined;
     const providerId = resolvePlanProvider(project, this.state.preferences, providerIdOverride);
     const args = buildPlanSessionArgs(project, getProviderCapabilities(providerId), planMode);
-    return this.addSession(projectId, name, withModelArg(args, model), providerId);
+    return this.addSession(projectId, name, withModelArg(args, model), providerId, undefined, envVars);
   }
 
   addSession(projectId: string, name: string, args?: string, providerId?: ProviderId, profileId?: string, envVars?: string): SessionRecord | undefined {

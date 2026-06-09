@@ -219,6 +219,14 @@ describe('addPlanSession()', () => {
     const session = appState.addPlanSession(project.id, 'Plan', false, 'claude')!;
     expect(session.args ?? '').not.toContain('--model');
   });
+
+  it('passes envVars through to the session (e.g. custom API endpoint)', () => {
+    const project = addProject();
+    const env = 'ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic\nANTHROPIC_API_KEY=sk-x';
+    const session = appState.addPlanSession(project.id, 'Plan', false, 'claude', 'deepseek-chat', env)!;
+    expect(session.envVars).toBe(env);
+    expect(session.args).toContain('--model deepseek-chat');
+  });
 });
 
 describe('buildModelArg()', () => {
