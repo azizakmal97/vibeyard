@@ -1,6 +1,7 @@
 import type { BoardTask, CostInfo, ContextWindowInfo, ArchivedSession, ProviderId } from '../../../shared/types.js';
 import { appState } from '../../state.js';
 import { getColumnByBehavior, updateTask, moveTask, deleteTask, getTagColor } from '../../board-state.js';
+import { withModelArg } from '../../state/specialized-sessions.js';
 import { getStatus, type SessionStatus } from '../../session-activity.js';
 import { getCost, formatTokens } from '../../session-cost.js';
 import { getContext, getContextSeverity } from '../../session-context.js';
@@ -168,8 +169,8 @@ export async function runTask(task: BoardTask): Promise<void> {
     }
     const sessionName = task.title || task.prompt.slice(0, 40);
     const session = task.planMode
-      ? appState.addPlanSession(project.id, sessionName, true, task.providerId)
-      : appState.addSession(project.id, sessionName, undefined, task.providerId);
+      ? appState.addPlanSession(project.id, sessionName, true, task.providerId, task.model)
+      : appState.addSession(project.id, sessionName, withModelArg(undefined, task.model), task.providerId);
     if (session) {
       updateTask(task.id, { sessionId: session.id });
       const activeCol = getColumnByBehavior('active');

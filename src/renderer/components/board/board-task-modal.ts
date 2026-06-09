@@ -11,6 +11,21 @@ import {
 import { appState } from '../../state.js';
 import { runTask } from './board-card.js';
 
+/**
+ * Known model options per provider, used to populate the task Model dropdown.
+ * The empty value means "provider default" (no `--model` flag passed). Providers
+ * absent from this map show no Model picker. `--model <value>` is universal across
+ * the supported CLIs, so adding a provider here is just listing its model ids.
+ */
+const MODEL_OPTIONS: Partial<Record<ProviderId, { value: string; label: string }[]>> = {
+  claude: [
+    { value: '', label: 'Default' },
+    { value: 'opus', label: 'Opus' },
+    { value: 'sonnet', label: 'Sonnet' },
+    { value: 'haiku', label: 'Haiku' },
+  ],
+};
+
 export interface TaskModalPrefill {
   title?: string;
   prompt?: string;
@@ -77,6 +92,7 @@ export function showTaskModal(
     task?.providerId
     ?? appState.preferences.defaultProvider
     ?? 'claude';
+  let currentModel: string = task?.model ?? '';
   const initialPlanMode = task?.planMode ?? (mode === 'create');
   const { row: planModeRow, checkbox: planModeCheckbox } =
     createPlanModeRow('Plan mode', initialPlanMode);
@@ -106,6 +122,7 @@ export function showTaskModal(
         columnId: targetColumnId,
         tags: currentTags.length > 0 ? currentTags : undefined,
         providerId: currentProviderId,
+        model: currentModel || undefined,
         planMode,
       });
     } else if (task) {
@@ -115,6 +132,7 @@ export function showTaskModal(
         notes: notes || undefined,
         tags: currentTags.length > 0 ? currentTags : undefined,
         providerId: currentProviderId,
+        model: currentModel || undefined,
         planMode,
         ...(values.columnId ? { columnId: values.columnId } : {}),
       });
@@ -253,6 +271,7 @@ export function showTaskModal(
   const onProviderChange = (value: string) => {
     currentProviderId = value as ProviderId;
     refreshPlanModeAvailability();
+    refreshModelField();
   };
 
   const initialProviderOptions = buildProviderOptions();
@@ -267,17 +286,50 @@ export function showTaskModal(
   providerFieldDiv.appendChild(providerSelect.element);
   registerModalCleanup(() => providerSelect.destroy());
 
+  // Model dropdown — passes `--model <value>` to the CLI on launch. Provider-aware:
+  // only shown for providers with known model options (see MODEL_OPTIONS).
+  const modelFieldDiv = document.createElement('div');
+  modelFieldDiv.className = 'modal-field';
+  const modelLabel = document.createElement('label');
+  modelLabel.textContent = 'Model';
+  modelFieldDiv.appendChild(modelLabel);
+  let modelSelect: CustomSelectInstance | undefined;
+  registerModalCleanup(() => modelSelect?.destroy());
+
+  function refreshModelField(): void {
+    const options = MODEL_OPTIONS[currentProviderId];
+    modelSelect?.destroy();
+    modelFieldDiv.querySelector('.custom-select')?.remove();
+    if (!options) {
+      modelFieldDiv.style.display = 'none';
+      currentModel = '';
+      return;
+    }
+    modelFieldDiv.style.display = '';
+    if (!options.some(o => o.value === currentModel)) currentModel = '';
+    modelSelect = createCustomSelect(
+      'taskModel',
+      options,
+      currentModel,
+      (value) => { currentModel = value; },
+    );
+    modelFieldDiv.appendChild(modelSelect.element);
+  }
+
   const planModeFieldDiv = document.createElement('div');
   planModeFieldDiv.className = 'modal-field modal-field-checkbox';
   planModeFieldDiv.appendChild(planModeRow);
 
   refreshPlanModeAvailability();
+  refreshModelField();
 
   if (columnField) {
     modalBody.insertBefore(providerFieldDiv, columnField);
+    modalBody.insertBefore(modelFieldDiv, columnField);
     modalBody.insertBefore(planModeFieldDiv, columnField);
   } else {
     modalBody.appendChild(providerFieldDiv);
+    modalBody.appendChild(modelFieldDiv);
     modalBody.appendChild(planModeFieldDiv);
   }
 
@@ -319,6 +371,7 @@ export function showTaskModal(
           notes: notes || undefined,
           tags: currentTags.length > 0 ? currentTags : undefined,
           providerId: currentProviderId,
+          model: currentModel || undefined,
           planMode,
           ...(columnId ? { columnId } : {}),
         });

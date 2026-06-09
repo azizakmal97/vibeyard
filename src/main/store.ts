@@ -5,7 +5,11 @@ import type { PersistedState } from '../shared/types';
 
 export type { SessionRecord, ProjectRecord, Preferences, PersistedState } from '../shared/types';
 
-const STATE_DIR = path.join(os.homedir(), '.vibeyard');
+// State dir defaults to ~/.vibeyard. Override with VIBEYARD_STATE_DIR to run an
+// isolated profile (e.g. a from-source dev build) without touching real data.
+const STATE_DIR = process.env.VIBEYARD_STATE_DIR
+  ? path.resolve(process.env.VIBEYARD_STATE_DIR)
+  : path.join(os.homedir(), '.vibeyard');
 const STATE_FILE = path.join(STATE_DIR, 'state.json');
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;

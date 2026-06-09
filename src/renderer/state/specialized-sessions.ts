@@ -21,6 +21,17 @@ export function buildPlanSessionArgs(
   return [base, planArg].filter(Boolean).join(' ').trim() || undefined;
 }
 
+/** Build the universal CLI arg for a model selection (`--model <value>`). Empty when unset. */
+export function buildModelArg(model: string | undefined): string {
+  const m = (model ?? '').trim();
+  return m ? `--model ${m}` : '';
+}
+
+/** Append a model selection onto an existing args string. Returns undefined when both are empty. */
+export function withModelArg(args: string | undefined, model: string | undefined): string | undefined {
+  return [args ?? '', buildModelArg(model)].filter(Boolean).join(' ').trim() || undefined;
+}
+
 /** Resolve the providerId used when creating a plain CLI session. */
 export function resolveCliProvider(prefs: Preferences, override: ProviderId | undefined): ProviderId {
   return override ?? prefs.defaultProvider ?? 'claude';

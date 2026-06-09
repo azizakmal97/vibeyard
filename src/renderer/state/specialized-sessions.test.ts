@@ -33,7 +33,7 @@ vi.mock('../provider-availability.js', () => ({
 }));
 
 import { appState, _resetForTesting } from '../state';
-import { resolveProfile } from './specialized-sessions.js';
+import { resolveProfile, buildModelArg, withModelArg } from './specialized-sessions.js';
 import type { Profile } from '../../shared/types.js';
 import { getCost } from '../session-cost.js';
 const mockGetCost = vi.mocked(getCost);
@@ -206,6 +206,48 @@ describe('addPlanSession()', () => {
 
   it('returns undefined for nonexistent project', () => {
     expect(appState.addPlanSession('no-such-project', 'Plan', true, 'claude')).toBeUndefined();
+  });
+
+  it('passes the selected model to the session args as --model', () => {
+    const project = addProject();
+    const session = appState.addPlanSession(project.id, 'Plan', false, 'claude', 'opus')!;
+    expect(session.args).toContain('--model opus');
+  });
+
+  it('omits --model when no model is selected', () => {
+    const project = addProject();
+    const session = appState.addPlanSession(project.id, 'Plan', false, 'claude')!;
+    expect(session.args ?? '').not.toContain('--model');
+  });
+});
+
+describe('buildModelArg()', () => {
+  it('builds the --model flag for a selected model', () => {
+    expect(buildModelArg('opus')).toBe('--model opus');
+  });
+
+  it('returns empty string for undefined / blank', () => {
+    expect(buildModelArg(undefined)).toBe('');
+    expect(buildModelArg('')).toBe('');
+    expect(buildModelArg('  ')).toBe('');
+  });
+});
+
+describe('withModelArg()', () => {
+  it('appends the model flag to existing args', () => {
+    expect(withModelArg('--foo', 'sonnet')).toBe('--foo --model sonnet');
+  });
+
+  it('returns just the model flag when args are empty', () => {
+    expect(withModelArg(undefined, 'haiku')).toBe('--model haiku');
+  });
+
+  it('returns existing args unchanged when no model', () => {
+    expect(withModelArg('--foo', undefined)).toBe('--foo');
+  });
+
+  it('returns undefined when both are empty', () => {
+    expect(withModelArg(undefined, undefined)).toBeUndefined();
   });
 });
 

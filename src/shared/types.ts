@@ -230,6 +230,8 @@ export interface BoardTask {
   sessionId?: string;
   cliSessionId?: string;
   providerId?: ProviderId;
+  /** Model passed to the CLI on launch as `--model <value>` (e.g. 'opus'). Empty/undefined = provider default. */
+  model?: string;
   planMode?: boolean;
   tags?: string[];
   createdAt: number;
