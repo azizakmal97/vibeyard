@@ -7,23 +7,64 @@ interface ParsedTask {
   section: string;
 }
 
+const DONE_STATUS_EMOJI = /^[✅☑]/u;
+const ANY_STATUS_EMOJI  = /^[✅☑⬜🟡🚧⏳⛔❌]/u;
+// single-word status labels used in legend lines like "- ⬜ pending"
+const LEGEND_WORDS = new Set(['pending', 'done', 'in-progress', 'blocked', 'complete', 'completed', 'todo', 'wip']);
+
+function stripMarkdown(text: string): string {
+  return text.replace(/\*\*(.+?)\*\*/g, '$1').trim();
+}
+
+function cleanPlanTitle(text: string): string {
+  return stripMarkdown(
+    text
+      .replace(/\s*—\s*\*\*Model:.*$/iu, '') // strip — **Model: X** annotation
+      .replace(/\s*\(DONE[^)]*\)/gi, '')       // strip (DONE 2026-...) suffixes
+  ).trim();
+}
+
 function parsePlan(content: string, skipChecked: boolean): ParsedTask[] {
   const tasks: ParsedTask[] = [];
   let currentSection = '';
   for (const line of content.split('\n')) {
+    // Headers: plain headers update current section; emoji-status headers become tasks
     const headerMatch = line.match(/^#{1,6}\s+(.+)$/);
     if (headerMatch) {
-      currentSection = headerMatch[1].trim();
+      const headerText = headerMatch[1].trim();
+      if (ANY_STATUS_EMOJI.test(headerText)) {
+        const titleRaw = headerText.replace(/^[✅☑⬜🟡🚧⏳⛔❌]\s*/u, '');
+        const title = cleanPlanTitle(titleRaw);
+        const isDone = DONE_STATUS_EMOJI.test(headerText);
+        // Push task first (using parent section), then update section for nested items.
+        if (!skipChecked || !isDone) {
+          if (title) tasks.push({ title, section: currentSection });
+        }
+        if (title) currentSection = title;
+      } else {
+        currentSection = stripMarkdown(headerText);
+      }
       continue;
     }
+    // Emoji-status bullets: "- ⬜ task title" / "- ✅ done item"
+    const emojiBullet = line.match(/^\s*-\s+([✅☑⬜🟡🚧⏳⛔❌])\s+(.+)$/u);
+    if (emojiBullet) {
+      const isDone = DONE_STATUS_EMOJI.test(emojiBullet[1]);
+      if (skipChecked && isDone) continue;
+      const text = emojiBullet[2].trim();
+      if (LEGEND_WORDS.has(text.toLowerCase())) continue; // skip legend lines
+      tasks.push({ title: stripMarkdown(text), section: currentSection });
+      continue;
+    }
+    // Standard GitHub-style checkboxes
     const unchecked = line.match(/^\s*-\s+\[\s?\]\s+(.+)$/);
     if (unchecked) {
-      tasks.push({ title: unchecked[1].trim(), section: currentSection });
+      tasks.push({ title: stripMarkdown(unchecked[1]), section: currentSection });
       continue;
     }
     if (!skipChecked) {
       const checked = line.match(/^\s*-\s+\[x\]\s+(.+)$/i);
-      if (checked) tasks.push({ title: checked[1].trim(), section: currentSection });
+      if (checked) tasks.push({ title: stripMarkdown(checked[1]), section: currentSection });
     }
   }
   return tasks;
@@ -41,7 +82,8 @@ export async function showImportPlanModal(): Promise<void> {
         const l = name.toLowerCase();
         if (l === 'progress.md') return 0;
         if (['plan.md', 'todo.md', 'tasks.md'].includes(l)) return 1;
-        return 2;
+        if (/progress|plan|todo|tasks|roadmap/.test(l)) return 2;
+        return 3;
       };
       const pd = priority(a.name) - priority(b.name);
       return pd !== 0 ? pd : a.name.localeCompare(b.name);
