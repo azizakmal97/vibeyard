@@ -1,5 +1,5 @@
 import { appState } from '../../state.js';
-import { getBoard, getColumnByBehavior, addTag, batchAddTasks } from '../../board-state.js';
+import { getBoard, getColumnByBehavior, batchAddTasks, TAG_COLORS } from '../../board-state.js';
 import { createCustomSelect } from '../custom-select.js';
 
 interface ParsedTask {
@@ -16,7 +16,7 @@ function parsePlan(content: string, skipChecked: boolean): ParsedTask[] {
       currentSection = headerMatch[1].trim();
       continue;
     }
-    const unchecked = line.match(/^\s*-\s+\[ \]\s+(.+)$/);
+    const unchecked = line.match(/^\s*-\s+\[\s?\]\s+(.+)$/);
     if (unchecked) {
       tasks.push({ title: unchecked[1].trim(), section: currentSection });
       continue;
@@ -50,6 +50,7 @@ export async function showImportPlanModal(): Promise<void> {
   let parsedTasks: ParsedTask[] = [];
   let skipChecked = true;
   let fileSelect: ReturnType<typeof createCustomSelect> | null = null;
+  let loadGeneration = 0;
 
   const overlay = document.createElement('div');
   overlay.className = 'board-import-overlay';
@@ -194,6 +195,7 @@ export async function showImportPlanModal(): Promise<void> {
   }
 
   async function loadFile(filePath: string): Promise<void> {
+    const gen = ++loadGeneration;
     preview.innerHTML = '';
     const loading = document.createElement('div');
     loading.className = 'board-import-empty';
@@ -202,6 +204,7 @@ export async function showImportPlanModal(): Promise<void> {
     importBtn.disabled = true;
 
     const result = await window.vibeyard.fs.readFile(filePath);
+    if (gen !== loadGeneration) return; // stale result from a superseded load
     if (!result.ok) {
       preview.innerHTML = '';
       const err = document.createElement('div');
@@ -242,8 +245,14 @@ export async function showImportPlanModal(): Promise<void> {
     const column = getColumnByBehavior('inbox') ?? board?.columns[0];
     if (!board || !column) return;
 
-    const sections = new Set(parsedTasks.map(t => t.section).filter(Boolean));
-    for (const section of sections) addTag(section);
+    // Add new tags directly (no notifyBoardChanged per tag) — batchAddTasks emits the single notification.
+    if (!board.tags) board.tags = [];
+    for (const section of parsedTasks.map(t => t.section).filter(Boolean)) {
+      const normalized = section.toLowerCase().trim();
+      if (!board.tags.some(t => t.name === normalized)) {
+        board.tags.push({ name: normalized, color: TAG_COLORS[board.tags.length % TAG_COLORS.length] });
+      }
+    }
 
     batchAddTasks(parsedTasks.map(t => ({
       title: t.title,

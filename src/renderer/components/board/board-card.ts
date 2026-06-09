@@ -170,7 +170,7 @@ export async function runTask(task: BoardTask): Promise<void> {
     const sessionName = task.title || task.prompt.slice(0, 40);
     const session = task.planMode
       ? appState.addPlanSession(project.id, sessionName, true, task.providerId, task.model, task.envVars)
-      : appState.addSession(project.id, sessionName, withModelArg(undefined, task.model), task.providerId, undefined, task.envVars);
+      : appState.addSession(project.id, sessionName, withModelArg(project.defaultArgs, task.model), task.providerId, undefined, task.envVars);
     if (session) {
       updateTask(task.id, { sessionId: session.id });
       const activeCol = getColumnByBehavior('active');

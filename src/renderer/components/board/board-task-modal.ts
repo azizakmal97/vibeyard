@@ -358,7 +358,6 @@ export function showTaskModal(
     if (!options) {
       modelFieldDiv.style.display = 'none';
       modelCustomInput.style.display = 'none';
-      currentModel = '';
       return;
     }
     modelFieldDiv.style.display = '';
