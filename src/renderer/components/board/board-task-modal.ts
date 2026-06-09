@@ -25,9 +25,21 @@ const MODEL_OPTIONS: Partial<Record<ProviderId, { value: string; label: string }
     { value: 'opus', label: 'Opus' },
     { value: 'sonnet', label: 'Sonnet' },
     { value: 'haiku', label: 'Haiku' },
+    // DeepSeek (via the Anthropic-compatible endpoint). Requires ANTHROPIC_BASE_URL
+    // + ANTHROPIC_API_KEY in the Environment Variables field. See modelHint below.
+    { value: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro' },
+    { value: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash' },
     { value: CUSTOM_MODEL, label: 'Custom…' },
   ],
 };
+
+/** When a non-Anthropic model is chosen, the user must point the CLI at that vendor's endpoint. */
+function modelHintFor(model: string): string {
+  if (model.startsWith('deepseek')) {
+    return 'DeepSeek needs ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic and ANTHROPIC_API_KEY in Environment Variables above.';
+  }
+  return '';
+}
 
 export interface TaskModalPrefill {
   title?: string;
@@ -318,13 +330,26 @@ export function showTaskModal(
   let modelSelect: CustomSelectInstance | undefined;
   registerModalCleanup(() => modelSelect?.destroy());
 
-  // Free-text input revealed when "Custom…" is picked (e.g. deepseek-chat).
+  // Free-text input revealed when "Custom…" is picked (e.g. a custom model id).
   const modelCustomInput = document.createElement('input');
   modelCustomInput.type = 'text';
   modelCustomInput.id = 'modal-taskModelCustom';
-  modelCustomInput.placeholder = 'Custom model id, e.g. deepseek-chat';
+  modelCustomInput.placeholder = 'Custom model id, e.g. deepseek-v4-pro';
   modelCustomInput.style.marginTop = '6px';
-  modelCustomInput.addEventListener('input', () => { currentModel = modelCustomInput.value.trim(); });
+  modelCustomInput.addEventListener('input', () => {
+    currentModel = modelCustomInput.value.trim();
+    updateModelHint();
+  });
+
+  // Contextual hint shown for models that need a custom endpoint (e.g. DeepSeek).
+  const modelHint = document.createElement('div');
+  modelHint.className = 'modal-field-hint';
+  modelHint.style.cssText = 'margin-top:6px;font-size:12px;opacity:0.7;';
+  function updateModelHint(): void {
+    const text = modelHintFor(currentModel);
+    modelHint.textContent = text;
+    modelHint.style.display = text ? '' : 'none';
+  }
 
   function refreshModelField(): void {
     const options = MODEL_OPTIONS[currentProviderId];
@@ -356,10 +381,13 @@ export function showTaskModal(
           modelCustomInput.style.display = 'none';
           currentModel = value;
         }
+        updateModelHint();
       },
     );
     modelFieldDiv.appendChild(modelSelect.element);
     modelFieldDiv.appendChild(modelCustomInput);
+    modelFieldDiv.appendChild(modelHint);
+    updateModelHint();
   }
 
   const planModeFieldDiv = document.createElement('div');
