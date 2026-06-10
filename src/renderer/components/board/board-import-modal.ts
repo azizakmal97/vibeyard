@@ -2,9 +2,10 @@ import { appState } from '../../state.js';
 import { getBoard, getColumnByBehavior, batchAddTasks, TAG_COLORS } from '../../board-state.js';
 import { createCustomSelect } from '../custom-select.js';
 
-interface ParsedTask {
+export interface ParsedTask {
   title: string;
   section: string;
+  done: boolean;
 }
 
 const DONE_STATUS_EMOJI = /^[✅☑]/u;
@@ -21,26 +22,34 @@ function cleanPlanTitle(text: string): string {
     text
       .replace(/\s*—\s*\*\*Model:.*$/iu, '') // strip — **Model: X** annotation
       .replace(/\s*\(DONE[^)]*\)/gi, '')       // strip (DONE 2026-...) suffixes
-  ).trim();
+  );
 }
 
-function parsePlan(content: string, skipChecked: boolean): ParsedTask[] {
+/**
+ * Parse a markdown plan into tasks. Recognizes three task syntaxes:
+ *   - GitHub checkboxes:        `- [ ] task` / `- [x] task`
+ *   - emoji-status headers:     `#### ⬜ Phase` / `#### ✅ Phase`
+ *   - emoji-status bullets:     `- ⬜ task` / `- ✅ task`
+ * `done` marks completed items (✅/☑ or `[x]`) so callers can filter them.
+ *
+ * Splitting on /\r?\n/ (not '\n') is essential: CRLF files would otherwise leave
+ * a trailing \r on every line, and JS `$` does not match before \r — which would
+ * make every `$`-anchored pattern below fail and the whole file parse as empty.
+ */
+export function parsePlan(content: string): ParsedTask[] {
   const tasks: ParsedTask[] = [];
   let currentSection = '';
-  for (const line of content.split('\n')) {
-    // Headers: plain headers update current section; emoji-status headers become tasks
+  for (const line of content.split(/\r?\n/)) {
     const headerMatch = line.match(/^#{1,6}\s+(.+)$/);
     if (headerMatch) {
       const headerText = headerMatch[1].trim();
       if (ANY_STATUS_EMOJI.test(headerText)) {
+        // Emoji-status header is a leaf task tagged with its parent (plain-header)
+        // section. It intentionally does NOT become the section for following
+        // siblings — otherwise sibling phases would tag each other.
         const titleRaw = headerText.replace(/^[✅☑⬜🟡🚧⏳⛔❌]\s*/u, '');
         const title = cleanPlanTitle(titleRaw);
-        const isDone = DONE_STATUS_EMOJI.test(headerText);
-        // Push task first (using parent section), then update section for nested items.
-        if (!skipChecked || !isDone) {
-          if (title) tasks.push({ title, section: currentSection });
-        }
-        if (title) currentSection = title;
+        if (title) tasks.push({ title, section: currentSection, done: DONE_STATUS_EMOJI.test(headerText) });
       } else {
         currentSection = stripMarkdown(headerText);
       }
@@ -49,50 +58,55 @@ function parsePlan(content: string, skipChecked: boolean): ParsedTask[] {
     // Emoji-status bullets: "- ⬜ task title" / "- ✅ done item"
     const emojiBullet = line.match(/^\s*-\s+([✅☑⬜🟡🚧⏳⛔❌])\s+(.+)$/u);
     if (emojiBullet) {
-      const isDone = DONE_STATUS_EMOJI.test(emojiBullet[1]);
-      if (skipChecked && isDone) continue;
       const text = emojiBullet[2].trim();
       if (LEGEND_WORDS.has(text.toLowerCase())) continue; // skip legend lines
-      tasks.push({ title: stripMarkdown(text), section: currentSection });
+      tasks.push({ title: stripMarkdown(text), section: currentSection, done: DONE_STATUS_EMOJI.test(emojiBullet[1]) });
       continue;
     }
     // Standard GitHub-style checkboxes
     const unchecked = line.match(/^\s*-\s+\[\s?\]\s+(.+)$/);
     if (unchecked) {
-      tasks.push({ title: stripMarkdown(unchecked[1]), section: currentSection });
+      tasks.push({ title: stripMarkdown(unchecked[1]), section: currentSection, done: false });
       continue;
     }
-    if (!skipChecked) {
-      const checked = line.match(/^\s*-\s+\[x\]\s+(.+)$/i);
-      if (checked) tasks.push({ title: stripMarkdown(checked[1]), section: currentSection });
+    const checked = line.match(/^\s*-\s+\[x\]\s+(.+)$/i);
+    if (checked) {
+      tasks.push({ title: stripMarkdown(checked[1]), section: currentSection, done: true });
     }
   }
   return tasks;
+}
+
+function visibleTasks(all: ParsedTask[], skipChecked: boolean): ParsedTask[] {
+  return skipChecked ? all.filter(t => !t.done) : all;
+}
+
+/**
+ * Rank a candidate file so the modal can auto-select the most plausible plan
+ * without the user picking. A file is only auto-selectable if it has open tasks.
+ * Among those we prefer plan-ish filenames, then genuine progress trackers
+ * (files that also contain *completed* items — a prompt template or a flat
+ * roadmap list has none), then raw open-task count as a tiebreak.
+ */
+export function planScore(name: string, tasks: ParsedTask[]): number {
+  const open = tasks.filter(t => !t.done).length;
+  if (open === 0) return -1; // nothing to import → never auto-selected
+  const done = tasks.length - open;
+  const isPlanName = /progress|plan|todo|tasks|roadmap/.test(name.toLowerCase());
+  return (isPlanName ? 1000 : 0) + (done > 0 ? 500 : 0) + open;
 }
 
 export async function showImportPlanModal(): Promise<void> {
   const project = appState.activeProject;
   if (!project) return;
 
-  const dirEntries = await window.vibeyard.fs.listDir(project.path);
-  const mdFiles = dirEntries
-    .filter(e => !e.isDirectory && e.name.endsWith('.md'))
-    .sort((a, b) => {
-      const priority = (name: string) => {
-        const l = name.toLowerCase();
-        if (l === 'progress.md') return 0;
-        if (['plan.md', 'todo.md', 'tasks.md'].includes(l)) return 1;
-        if (/progress|plan|todo|tasks|roadmap/.test(l)) return 2;
-        return 3;
-      };
-      const pd = priority(a.name) - priority(b.name);
-      return pd !== 0 ? pd : a.name.localeCompare(b.name);
-    });
-
   let parsedTasks: ParsedTask[] = [];
+  let allTasks: ParsedTask[] = []; // unfiltered tasks for the selected file
   let skipChecked = true;
   let fileSelect: ReturnType<typeof createCustomSelect> | null = null;
-  let loadGeneration = 0;
+  // Parsed tasks per file path, populated once during the initial scan so
+  // switching files / toggling "skip completed" never re-reads from disk.
+  const tasksByPath = new Map<string, ParsedTask[]>();
 
   const overlay = document.createElement('div');
   overlay.className = 'board-import-overlay';
@@ -193,20 +207,23 @@ export async function showImportPlanModal(): Promise<void> {
     }
   }
 
-  function renderPreview(): void {
+  function setMessage(text: string): void {
     preview.innerHTML = '';
+    const el = document.createElement('div');
+    el.className = 'board-import-empty';
+    el.textContent = text;
+    preview.appendChild(el);
+  }
+
+  function renderPreview(): void {
     if (parsedTasks.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'board-import-empty';
-      empty.textContent = skipChecked
-        ? 'No unchecked tasks found in this file.'
-        : 'No tasks found in this file.';
-      preview.appendChild(empty);
+      setMessage(skipChecked ? 'No unchecked tasks found in this file.' : 'No tasks found in this file.');
       updateImportBtn();
       return;
     }
 
     updateImportBtn();
+    preview.innerHTML = '';
 
     const list = document.createElement('div');
     list.className = 'board-import-list';
@@ -236,49 +253,17 @@ export async function showImportPlanModal(): Promise<void> {
     preview.appendChild(list);
   }
 
-  async function loadFile(filePath: string): Promise<void> {
-    const gen = ++loadGeneration;
-    preview.innerHTML = '';
-    const loading = document.createElement('div');
-    loading.className = 'board-import-empty';
-    loading.textContent = 'Loading…';
-    preview.appendChild(loading);
-    importBtn.disabled = true;
-
-    const result = await window.vibeyard.fs.readFile(filePath);
-    if (gen !== loadGeneration) return; // stale result from a superseded load
-    if (!result.ok) {
-      preview.innerHTML = '';
-      const err = document.createElement('div');
-      err.className = 'board-import-empty';
-      err.textContent = 'Failed to read file.';
-      preview.appendChild(err);
-      return;
-    }
-
-    parsedTasks = parsePlan(result.content, skipChecked);
+  function selectFile(filePath: string): void {
+    allTasks = tasksByPath.get(filePath) ?? [];
+    parsedTasks = visibleTasks(allTasks, skipChecked);
     renderPreview();
   }
 
   skipCb.addEventListener('change', () => {
     skipChecked = skipCb.checked;
-    if (fileSelect) loadFile(fileSelect.getValue());
+    parsedTasks = visibleTasks(allTasks, skipChecked);
+    renderPreview();
   });
-
-  if (mdFiles.length === 0) {
-    fileField.style.display = 'none';
-    const empty = document.createElement('div');
-    empty.className = 'board-import-empty';
-    empty.textContent = 'No markdown files found in the project root.';
-    preview.appendChild(empty);
-  } else {
-    const options = mdFiles.map(f => ({ value: f.path, label: f.name }));
-    fileSelect = createCustomSelect('board-import-file-select', options, options[0].value, (val) => {
-      loadFile(val);
-    });
-    fileSelectWrap.appendChild(fileSelect.element);
-    loadFile(options[0].value);
-  }
 
   importBtn.addEventListener('click', () => {
     if (parsedTasks.length === 0) return;
@@ -287,16 +272,24 @@ export async function showImportPlanModal(): Promise<void> {
     const column = getColumnByBehavior('inbox') ?? board?.columns[0];
     if (!board || !column) return;
 
+    // Skip tasks whose title is already on the board so re-importing is idempotent.
+    const existing = new Set(board.tasks.map(t => (t.title || '').toLowerCase().trim()));
+    const toImport = parsedTasks.filter(t => !existing.has(t.title.toLowerCase().trim()));
+    if (toImport.length === 0) {
+      close();
+      return;
+    }
+
     // Add new tags directly (no notifyBoardChanged per tag) — batchAddTasks emits the single notification.
     if (!board.tags) board.tags = [];
-    for (const section of parsedTasks.map(t => t.section).filter(Boolean)) {
+    for (const section of toImport.map(t => t.section).filter(Boolean)) {
       const normalized = section.toLowerCase().trim();
       if (!board.tags.some(t => t.name === normalized)) {
         board.tags.push({ name: normalized, color: TAG_COLORS[board.tags.length % TAG_COLORS.length] });
       }
     }
 
-    batchAddTasks(parsedTasks.map(t => ({
+    batchAddTasks(toImport.map(t => ({
       title: t.title,
       prompt: t.title,
       columnId: column.id,
@@ -306,5 +299,48 @@ export async function showImportPlanModal(): Promise<void> {
     close();
   });
 
+  setMessage('Scanning plan files…');
   document.body.appendChild(overlay);
+
+  // Read & parse every root-level markdown file once, then auto-select the
+  // richest plan. This is what makes detection automatic: the user does not
+  // have to know which file holds the tasks.
+  const dirEntries = await window.vibeyard.fs.listDir(project.path);
+  const mdFiles = dirEntries.filter(e => !e.isDirectory && e.name.toLowerCase().endsWith('.md'));
+
+  if (mdFiles.length === 0) {
+    fileField.style.display = 'none';
+    setMessage('No markdown files found in the project root.');
+    return;
+  }
+
+  const scans = await Promise.all(mdFiles.map(async (f) => {
+    try {
+      const r = await window.vibeyard.fs.readFile(f.path);
+      const tasks = r.ok ? parsePlan(r.content) : [];
+      return { file: f, tasks };
+    } catch {
+      return { file: f, tasks: [] as ParsedTask[] };
+    }
+  }));
+
+  if (!overlay.isConnected) return; // modal closed while scanning
+
+  for (const s of scans) tasksByPath.set(s.file.path, s.tasks);
+
+  scans.sort((a, b) => {
+    const sd = planScore(b.file.name, b.tasks) - planScore(a.file.name, a.tasks);
+    return sd !== 0 ? sd : a.file.name.localeCompare(b.file.name);
+  });
+
+  const options = scans.map((s) => {
+    const open = s.tasks.filter(t => !t.done).length;
+    return { value: s.file.path, label: open > 0 ? `${s.file.name} (${open})` : s.file.name };
+  });
+
+  fileSelect = createCustomSelect('board-import-file-select', options, options[0].value, (val) => {
+    selectFile(val);
+  });
+  fileSelectWrap.appendChild(fileSelect.element);
+  selectFile(options[0].value);
 }
