@@ -52,6 +52,7 @@
   "build": {
     "appId": "com.vibeyard.app",
     "productName": "Vibeyard",
+    "npmRebuild": false,
     "icon": "build/icon.png",
     "files": [
       "dist/main/**/*",
