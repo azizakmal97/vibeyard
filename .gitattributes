@@ -1,0 +1,8 @@
+# Normalize line endings so a file reads identically to Claude Code, every IDE,
+# and git — no matter which tool wrote it last.
+* text=auto eol=lf
+
+# Windows-only scripts stay CRLF.
+*.ps1  text eol=crlf
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
